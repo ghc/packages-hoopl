@@ -18,10 +18,16 @@ import Compiler.Hoopl.Dataflow
 import Compiler.Hoopl.Graph (Graph, C, O)
 import Compiler.Hoopl.Label
 
-
 ----------------------------------------------------------------
--- Using the Shape typeclass, we can discover the shape of a graph node.
-
+-- It's convenient to be able to use both polymorphic and monomorphic
+-- transfer and rewrite functions:
+--   - Some combinators are easier to write using a polymorphic transfer function.
+--   - Others can only be written using monomorphic functions on first, middle,
+--     and last nodes.
+-- If we can classify the shapes of the nodes, we can convert between
+-- polymorphic and monomorphic functions easily.
+-- 
+-- To that end, we use the following shape classifier:
 class Shape n where
   shape :: n e x -> ShapeT e x
 
@@ -30,33 +36,20 @@ data ShapeT e x where
   Middle :: ShapeT O O
   Last   :: ShapeT O C
 
-----------------------------------------------------------------
-type FRW  m n f e x = n e x -> f -> m (FwdRes m n f e x)
-type SFRW m n f e x = n e x -> f -> m (Maybe (Graph n e x))
-type SimpleFwdRewrite3 m n f = ExTriple (SFRW m n f)
-type ExTriple a = (a C O, a O O, a O C) -- ^ entry/exit triple
-type SimpleFwdRewrite m n f = forall e x . SFRW m n f e x
 
-----------------------------------------------------------------
--- Some combinators cannot be written without distinguishing
--- between first, middle, and last nodes.
--- See
-
--- Most of the combinators are easier to write using polymorphic
--- analyze or rewrite functions.
-
--- 
--- Same code, different types. Not sure how to improve it...
+-- Conversion from monomorphic rewrite triples to a shape-polymorphic rewrite function:
 polySFR :: Shape n => SimpleFwdRewrite3 m n f -> SimpleFwdRewrite m n f
 polySFR (f, m, l) = \ n -> case shape n of First  -> f n
                                            Middle -> m n
                                            Last   -> l n
 
+-- Conversion from monomorphic rewrite triples to a shape-polymorphic rewrite function:
 polySBR :: Shape n => SimpleBwdRewrite3 m n f -> SimpleBwdRewrite m n f
 polySBR (f, m, l) = \ n -> case shape n of First  -> f n
                                            Middle -> m n
                                            Last   -> l n
 
+-- The polymorphic version of getFRewrite3
 getFRewrite :: forall m n f e x . Shape n
             => FwdRewrite m n f -> (n e x -> f -> m (FwdRes m n f e x))
 getFRewrite = poly . getFRewrite3
@@ -65,6 +58,7 @@ getFRewrite = poly . getFRewrite3
                                                 Middle -> m n
                                                 Last   -> l n
 
+-- The polymorphic version of getBRewrite3
 getBRewrite :: forall m n f e x . Shape n
             => BwdRewrite m n f -> (n e x -> Fact x f -> m (BwdRes m n f e x))
 getBRewrite = poly . getBRewrite3
@@ -73,10 +67,14 @@ getBRewrite = poly . getBRewrite3
                                                 Middle -> m n
                                                 Last   -> l n
 
-
-
 ----------------------------------------------------------------
+type ExTriple a = (a C O, a O O, a O C) -- ^ entry/exit triple
 
+type FRW  m n f e x = n e x -> f -> m (FwdRes m n f e x)
+type SFRW m n f e x = n e x -> f -> m (Maybe (Graph n e x))
+type SimpleFwdRewrite3 m n f = ExTriple (SFRW m n f)
+type SimpleFwdRewrite m n f = forall e x . SFRW m n f e x
+----------------------------------------------------------------
 
 shallowFwdRw :: Monad m => SimpleFwdRewrite m n f -> FwdRewrite m n f
 shallowFwdRw rw = mkFRewrite $ lift rw
@@ -124,12 +122,10 @@ iterFwdRw rw3 = mkFRewrite iter
 
 
 ----------------------------------------------------------------
-
 type BRW  m n f e x = n e x -> Fact x f -> m (BwdRes m n f e x)
 type SBRW m n f e x = n e x -> Fact x f -> m (Maybe (Graph n e x))
 type SimpleBwdRewrite3 m n f = ExTriple ( SBRW m n f)
 type SimpleBwdRewrite m n f = forall e x . SBRW m n f e x
-
 ----------------------------------------------------------------
 
 noBwdRewrite :: Monad m => BwdRewrite m n f
