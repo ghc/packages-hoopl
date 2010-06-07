@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, LiberalTypeSynonyms, ScopedTypeVariables #-}
+{-# LANGUAGE GADTs, RankNTypes, LiberalTypeSynonyms, ScopedTypeVariables #-}
 
 module Compiler.Hoopl.Combinators
   ( SimpleFwdRewrite, SimpleFwdRewrite3, noFwdRewrite, thenFwdRw
@@ -11,7 +11,6 @@ module Compiler.Hoopl.Combinators
 where
 
 import Control.Monad
-import Data.Function
 import Data.Maybe
 
 import Compiler.Hoopl.Collections
@@ -19,87 +18,91 @@ import Compiler.Hoopl.Dataflow
 import Compiler.Hoopl.Graph (Graph, C, O)
 import Compiler.Hoopl.Label
 
-type FR m n f = FwdRewrite m n f
-type BR m n f = BwdRewrite m n f
 
-type SFRW m n f e x = n e x -> f -> m (Maybe (Graph n e x))
+----------------------------------------------------------------
+-- Using the Shape typeclass, we can discover the shape of a graph node.
+
+class Shape n where
+  shape :: n e x -> ShapeT e x
+
+data ShapeT e x where
+  First  :: ShapeT C O
+  Middle :: ShapeT O O
+  Last   :: ShapeT O C
+
+----------------------------------------------------------------
 type FRW  m n f e x = n e x -> f -> m (FwdRes m n f e x)
+type SFRW m n f e x = n e x -> f -> m (Maybe (Graph n e x))
 type SimpleFwdRewrite3 m n f = ExTriple (SFRW m n f)
 type ExTriple a = (a C O, a O O, a O C) -- ^ entry/exit triple
 type SimpleFwdRewrite m n f = forall e x . SFRW m n f e x
-type LiftFRW m n f e x = SFRW m n f e x -> FRW m n f e x
-type MapFRW  m n f e x = FRW  m n f e x -> FRW m n f e x
-type MapFRW2 m n f e x = FRW  m n f e x -> FRW m n f e x -> FRW m n f e x
 
 ----------------------------------------------------------------
--- common operations on triples
+-- Some combinators cannot be written without distinguishing
+-- between first, middle, and last nodes.
+-- See
 
-uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
-uncurry3 f (a, b, c) = f a b c
+-- Most of the combinators are easier to write using polymorphic
+-- analyze or rewrite functions.
 
-apply :: (a -> b, d -> e, g -> h) -> (a, d, g) -> (b, e, h)
-apply (f1, f2, f3) (x1, x2, x3) = (f1 x1, f2 x2, f3 x3)
+-- 
+-- Same code, different types. Not sure how to improve it...
+polySFR :: Shape n => SimpleFwdRewrite3 m n f -> SimpleFwdRewrite m n f
+polySFR (f, m, l) = \ n -> case shape n of First  -> f n
+                                           Middle -> m n
+                                           Last   -> l n
 
-applyBinary :: (a -> b -> c, d -> e -> f, g -> h -> i)
-            -> (a, d, g) -> (b, e, h) -> (c, f, i)
-applyBinary (f1, f2, f3) (x1, x2, x3) (y1, y2, y3) = (f1 x1 y1, f2 x2 y2, f3 x3 y3)
+polySBR :: Shape n => SimpleBwdRewrite3 m n f -> SimpleBwdRewrite m n f
+polySBR (f, m, l) = \ n -> case shape n of First  -> f n
+                                           Middle -> m n
+                                           Last   -> l n
 
+getFRewrite :: forall m n f e x . Shape n
+            => FwdRewrite m n f -> (n e x -> f -> m (FwdRes m n f e x))
+getFRewrite = poly . getFRewrite3
+  where poly :: ExTriple (FRW m n f) -> forall e x . FRW m n f e x
+        poly (f, m, l) = \ n -> case shape n of First  -> f n
+                                                Middle -> m n
+                                                Last   -> l n
 
-----------------------------------------------------------------
-
-wrapSFRewrite3 :: ExTriple (LiftFRW m n f) -> SimpleFwdRewrite3 m n f -> FR m n f
-wrapSFRewrite3 lift rw = uncurry3 mkFRewrite3 $ apply lift rw
-
-wrapFRewrite3 :: ExTriple (MapFRW m n f) -> FR m n f -> FR m n f
-wrapFRewrite3 map frw = uncurry3 mkFRewrite3 $ apply map $ getFRewrite3 frw
-
-wrapFRewrites23 :: ExTriple (MapFRW2 m n f) -> FR m n f -> FR m n f -> FR m n f
-wrapFRewrites23 map frw1 frw2 =
-  uncurry3 mkFRewrite3 $ (applyBinary map `on` getFRewrite3) frw1 frw2
-
-
--- Combinators for higher-rank rewriting functions:
-wrapSFRewrites' :: (forall e x . LiftFRW m n f e x) -> SimpleFwdRewrite3 m n f -> FR m n f
-wrapSFRewrites' lift = wrapSFRewrite3 (lift, lift, lift)
-
-wrapFRewrites :: (forall e x . MapFRW m n f e x) -> FR m n f -> FR m n f
-wrapFRewrites map = wrapFRewrite3 (map, map, map)
--- It's ugly that we can't use
---    wrapFRewrites' = mkFRewrite'
--- Would be nice to refactor here XXX  ---NR
+getBRewrite :: forall m n f e x . Shape n
+            => BwdRewrite m n f -> (n e x -> Fact x f -> m (BwdRes m n f e x))
+getBRewrite = poly . getBRewrite3
+  where poly :: ExTriple (BRW m n f) -> forall e x . BRW m n f e x
+        poly (f, m, l) = \ n -> case shape n of First  -> f n
+                                                Middle -> m n
+                                                Last   -> l n
 
 
-wrapFRewrites2 :: (forall e x . MapFRW2 m n f e x) -> FR m n f -> FR m n f -> FR m n f
-wrapFRewrites2 map = wrapFRewrites23 (map, map, map)
 
 ----------------------------------------------------------------
 
 
-shallowFwdRw3 :: forall m n f . Monad m => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
-shallowFwdRw3 rw = wrapSFRewrites' lift rw
+shallowFwdRw :: Monad m => SimpleFwdRewrite m n f -> FwdRewrite m n f
+shallowFwdRw rw = mkFRewrite $ lift rw
   where lift rw n f = liftM withoutRewrite (rw n f) 
         withoutRewrite Nothing = NoFwdRes
         withoutRewrite (Just g) = FwdRes g noFwdRewrite
 
-shallowFwdRw :: Monad m => SimpleFwdRewrite m n f -> FwdRewrite m n f
-shallowFwdRw f = shallowFwdRw3 (f, f, f)
+shallowFwdRw3 :: forall m n f . (Monad m, Shape n) => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
+shallowFwdRw3 rw3 = shallowFwdRw $ polySFR rw3
 
-deepFwdRw3    :: Monad m => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
-deepFwdRw :: Monad m => SimpleFwdRewrite m n f -> FwdRewrite m n f
-deepFwdRw3    r = iterFwdRw (shallowFwdRw3 r)
-deepFwdRw f = deepFwdRw3 (f, f, f)
+deepFwdRw3    :: (Monad m, Shape n) => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
+deepFwdRw     :: (Monad m, Shape n) => SimpleFwdRewrite  m n f -> FwdRewrite m n f
+deepFwdRw3 r = iterFwdRw  (shallowFwdRw3 r)
+deepFwdRw  r = iterFwdRw  (shallowFwdRw  r)
 
 -- N.B. rw3, rw3', and rw3a are triples of functions.
 -- But rw and rw' are single functions.
 -- @ start comb1.tex
-thenFwdRw :: Monad m 
+thenFwdRw :: (Monad m, Shape n)
           => FwdRewrite m n f 
           -> FwdRewrite m n f 
           -> FwdRewrite m n f
-thenFwdRw rw3 rw3' = wrapFRewrites2 thenrw rw3 rw3'
+thenFwdRw rw3 rw3' = mkFRewrite thenrw
  where
-  thenrw rw rw' n f = rw n f >>= fwdRes
-     where fwdRes NoFwdRes = rw' n f
+  thenrw n f = getFRewrite rw3 n f >>= fwdRes
+     where fwdRes NoFwdRes = getFRewrite rw3' n f
            fwdRes (FwdRes g rw3a)
             = return $ FwdRes g (rw3a `thenFwdRw` rw3')
 
@@ -108,84 +111,62 @@ noFwdRewrite = mkFRewrite $ \ _ _ -> return NoFwdRes
 -- @ end comb1.tex
 
 -- @ start iterf.tex
-iterFwdRw :: Monad m 
+iterFwdRw :: (Monad m, Shape n)
           => FwdRewrite m n f 
           -> FwdRewrite m n f
-iterFwdRw rw3 = wrapFRewrites iter rw3
+iterFwdRw rw3 = mkFRewrite iter
  where
-    iter rw n f = rw n f >>= fwdRes
+    iter n f = getFRewrite rw3 n f >>= fwdRes
     fwdRes NoFwdRes = return NoFwdRes
     fwdRes (FwdRes g rw3a)
       = return $ FwdRes g (rw3a `thenFwdRw` iterFwdRw rw3)
 -- @ end iterf.tex
 
+
 ----------------------------------------------------------------
 
-type SBRW m n f e x = n e x -> Fact x f -> m (Maybe (Graph n e x))
 type BRW  m n f e x = n e x -> Fact x f -> m (BwdRes m n f e x)
+type SBRW m n f e x = n e x -> Fact x f -> m (Maybe (Graph n e x))
 type SimpleBwdRewrite3 m n f = ExTriple ( SBRW m n f)
 type SimpleBwdRewrite m n f = forall e x . SBRW m n f e x
-type LiftBRW m n f e x = SBRW m n f e x -> BRW m n f e x
-type MapBRW  m n f e x = BRW  m n f e x -> BRW m n f e x
-type MapBRW2 m n f e x = BRW  m n f e x -> BRW m n f e x -> BRW m n f e x
-
-----------------------------------------------------------------
-
-wrapSBRewrite3 :: ExTriple (LiftBRW m n f) -> SimpleBwdRewrite3 m n f -> BwdRewrite m n f
-wrapSBRewrite3 lift rw = uncurry3 mkBRewrite3 $ apply lift rw
-
-wrapBRewrite3 :: ExTriple (MapBRW m n f) -> BwdRewrite m n f -> BwdRewrite m n f
-wrapBRewrite3 map rw = uncurry3 mkBRewrite3 $ apply map $ getBRewrite3 rw
-
-wrapBRewrites2 :: ExTriple (MapBRW2 m n f) -> BR m n f -> BR m n f -> BR m n f
-wrapBRewrites2 map rw1 rw2 =
-  uncurry3 mkBRewrite3 $ (applyBinary map `on` getBRewrite3) rw1 rw2
-
--- Combinators for higher-rank rewriting functions:
-wrapSBRewrites' :: (forall e x . LiftBRW m n f e x) -> SimpleBwdRewrite3 m n f -> BR m n f
-wrapSBRewrites' lift = wrapSBRewrite3 (lift, lift, lift)
-
-wrapBRewrites' :: (forall e x . MapBRW m n f e x) -> BwdRewrite m n f -> BwdRewrite m n f
-wrapBRewrites' map = wrapBRewrite3 (map, map, map)
-
-wrapBRewrites2' :: (forall e x . MapBRW2 m n f e x) -> BR m n f -> BR m n f -> BR m n f
-wrapBRewrites2' map = wrapBRewrites2 (map, map, map)
 
 ----------------------------------------------------------------
 
 noBwdRewrite :: Monad m => BwdRewrite m n f
 noBwdRewrite = mkBRewrite $ \ _ _ -> return NoBwdRes
 
-shallowBwdRw3 :: Monad m => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
-shallowBwdRw3 rw = wrapSBRewrites' lift rw
+shallowBwdRw :: Monad m => SimpleBwdRewrite m n f -> BwdRewrite m n f
+shallowBwdRw rw = mkBRewrite $ lift rw
   where lift rw n f = liftM withoutRewrite (rw n f)
         withoutRewrite Nothing = NoBwdRes
         withoutRewrite (Just g) = BwdRes g noBwdRewrite
 
-shallowBwdRw :: Monad m => SimpleBwdRewrite m n f -> BwdRewrite m n f
-shallowBwdRw f = shallowBwdRw3 (f, f, f)
+shallowBwdRw3 :: (Monad m, Shape n) => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
+shallowBwdRw3 rw = shallowBwdRw $ polySBR rw
 
-deepBwdRw3 :: Monad m => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
-deepBwdRw  :: Monad m => SimpleBwdRewrite  m n f -> BwdRewrite m n f
+deepBwdRw3 :: (Monad m, Shape n) => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
+deepBwdRw  :: (Monad m, Shape n) => SimpleBwdRewrite  m n f -> BwdRewrite m n f
 deepBwdRw3 r = iterBwdRw (shallowBwdRw3 r)
-deepBwdRw  f = deepBwdRw3 (f, f, f)
+deepBwdRw  r = iterBwdRw (shallowBwdRw  r)
 
 
-thenBwdRw :: Monad m => BwdRewrite m n f -> BwdRewrite m n f -> BwdRewrite m n f
-thenBwdRw rw1 rw2 = wrapBRewrites2' f rw1 rw2
-  where f rw1 rw2' n f = do
-          res1 <- rw1 n f
-          case res1 of
-            NoBwdRes        -> rw2' n f
-            (BwdRes g rw1a) -> return $ BwdRes g (rw1a `thenBwdRw` rw2)
+thenBwdRw :: (Monad m, Shape n) => BwdRewrite m n f -> BwdRewrite m n f -> BwdRewrite m n f
+thenBwdRw rw3 rw3' = mkBRewrite thenrw
+  where
+   thenrw n f = getBRewrite rw3 n f >>= bwdRes
+      where bwdRes NoBwdRes = getBRewrite rw3' n f
+            bwdRes (BwdRes g rw3a)
+             = return $ BwdRes g (rw3a `thenBwdRw` rw3')
 
-iterBwdRw :: Monad m => BwdRewrite m n f -> BwdRewrite m n f
-iterBwdRw rw = wrapBRewrites' f rw
-  where f rw' n f = liftM iterRewrite (rw' n f)
-        iterRewrite NoBwdRes = NoBwdRes
-        iterRewrite (BwdRes g rw2) = BwdRes g (rw2 `thenBwdRw` iterBwdRw rw)
+iterBwdRw :: (Monad m, Shape n) => BwdRewrite m n f -> BwdRewrite m n f
+iterBwdRw rw3 = mkBRewrite iter
+  where 
+    iter n f = getBRewrite rw3 n f >>= bwdRes
+    bwdRes NoBwdRes = return NoBwdRes
+    bwdRes (BwdRes g rw3a)
+      = return $ BwdRes g (rw3a `thenBwdRw` iterBwdRw rw3)
 
-pairFwd :: forall m n f f' . Monad m => FwdPass m n f -> FwdPass m n f' -> FwdPass m n (f, f')
+pairFwd :: forall m n f f' . (Monad m, Shape n) => FwdPass m n f -> FwdPass m n f' -> FwdPass m n (f, f')
 pairFwd pass1 pass2 = FwdPass lattice transfer rewrite
   where
     lattice = pairLattice (fp_lattice pass1) (fp_lattice pass2)
@@ -207,7 +188,7 @@ pairFwd pass1 pass2 = FwdPass lattice transfer rewrite
                 projRewrite (FwdRes g rws') = FwdRes g $ liftRW rws' proj
                 (f, m, l) = getFRewrite3 rws
 
-pairBwd :: forall m n f f' . Monad m => BwdPass m n f -> BwdPass m n f' -> BwdPass m n (f, f')
+pairBwd :: forall m n f f' . (Monad m, Shape n) => BwdPass m n f -> BwdPass m n f' -> BwdPass m n (f, f')
 pairBwd pass1 pass2 = BwdPass lattice transfer rewrite
   where
     lattice = pairLattice (bp_lattice pass1) (bp_lattice pass2)
