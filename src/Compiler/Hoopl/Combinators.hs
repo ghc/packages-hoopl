@@ -37,18 +37,6 @@ data ShapeT e x where
   Last   :: ShapeT O C
 
 
--- Conversion from monomorphic rewrite triples to a shape-polymorphic rewrite function:
-polySFR :: Shape n => SimpleFwdRewrite3 m n f -> SimpleFwdRewrite m n f
-polySFR (f, m, l) = \ n -> case shape n of First  -> f n
-                                           Middle -> m n
-                                           Last   -> l n
-
--- Conversion from monomorphic rewrite triples to a shape-polymorphic rewrite function:
-polySBR :: Shape n => SimpleBwdRewrite3 m n f -> SimpleBwdRewrite m n f
-polySBR (f, m, l) = \ n -> case shape n of First  -> f n
-                                           Middle -> m n
-                                           Last   -> l n
-
 -- The polymorphic version of getFRewrite3
 getFRewrite :: forall m n f e x . Shape n
             => FwdRewrite m n f -> (n e x -> f -> m (FwdRes m n f e x))
@@ -77,13 +65,13 @@ type SimpleFwdRewrite m n f = forall e x . SFRW m n f e x
 ----------------------------------------------------------------
 
 shallowFwdRw :: Monad m => SimpleFwdRewrite m n f -> FwdRewrite m n f
-shallowFwdRw rw = mkFRewrite $ lift rw
+shallowFwdRw rw = shallowFwdRw3 (rw, rw, rw)
+
+shallowFwdRw3 :: forall m n f . Monad m => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
+shallowFwdRw3 (f, m, l) = mkFRewrite3 (lift f) (lift m) (lift l)
   where lift rw n f = liftM withoutRewrite (rw n f) 
         withoutRewrite Nothing = NoFwdRes
         withoutRewrite (Just g) = FwdRes g noFwdRewrite
-
-shallowFwdRw3 :: forall m n f . (Monad m, Shape n) => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
-shallowFwdRw3 rw3 = shallowFwdRw $ polySFR rw3
 
 deepFwdRw3    :: (Monad m, Shape n) => SimpleFwdRewrite3 m n f -> FwdRewrite m n f
 deepFwdRw     :: (Monad m, Shape n) => SimpleFwdRewrite  m n f -> FwdRewrite m n f
@@ -132,13 +120,13 @@ noBwdRewrite :: Monad m => BwdRewrite m n f
 noBwdRewrite = mkBRewrite $ \ _ _ -> return NoBwdRes
 
 shallowBwdRw :: Monad m => SimpleBwdRewrite m n f -> BwdRewrite m n f
-shallowBwdRw rw = mkBRewrite $ lift rw
+shallowBwdRw rw = shallowBwdRw3 (rw, rw, rw)
+
+shallowBwdRw3 :: Monad m => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
+shallowBwdRw3 (f, m, l) = mkBRewrite3 (lift f) (lift m) (lift l)
   where lift rw n f = liftM withoutRewrite (rw n f)
         withoutRewrite Nothing = NoBwdRes
         withoutRewrite (Just g) = BwdRes g noBwdRewrite
-
-shallowBwdRw3 :: (Monad m, Shape n) => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
-shallowBwdRw3 rw = shallowBwdRw $ polySBR rw
 
 deepBwdRw3 :: (Monad m, Shape n) => SimpleBwdRewrite3 m n f -> BwdRewrite m n f
 deepBwdRw  :: (Monad m, Shape n) => SimpleBwdRewrite  m n f -> BwdRewrite m n f
