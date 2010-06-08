@@ -6,6 +6,7 @@ module Compiler.Hoopl.Combinators
   , SimpleBwdRewrite, SimpleBwdRewrite3, noBwdRewrite, thenBwdRw
   , shallowBwdRw3, shallowBwdRw, deepBwdRw3, deepBwdRw, iterBwdRw
   , pairFwd, pairBwd, pairLattice
+  , Shape(..), ShapeT(..)
   )
 
 where
