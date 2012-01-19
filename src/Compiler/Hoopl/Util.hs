@@ -33,7 +33,7 @@ gUnitCC :: NonLocal (block n) => block n C C -> Graph' block n C C
 gUnitOO b = GUnit b
 gUnitOC b = GMany (JustO b) emptyBody  NothingO
 gUnitCO b = GMany NothingO  emptyBody (JustO b)
-gUnitCC b = GMany NothingO  (addBlock b emptyBody) NothingO
+gUnitCC b = GMany NothingO (addBlock b emptyBody) NothingO
 
 
 catGraphNodeOO ::            Graph n e O -> n O O -> Graph n e O
@@ -42,41 +42,33 @@ catNodeOOGraph ::            n O O -> Graph n O x -> Graph n O x
 catNodeCOGraph :: NonLocal n => n C O -> Graph n O x -> Graph n C x
 
 catGraphNodeOO GNil                     n = gUnitOO $ BMiddle n
-catGraphNodeOO (GUnit b)                n = gUnitOO $ b `BCat` BMiddle n
-catGraphNodeOO (GMany e body (JustO x)) n = GMany e body (JustO $ x `BHead` n)
+catGraphNodeOO (GUnit b)                n = gUnitOO $ BHead b n
+catGraphNodeOO (GMany e body (JustO (BlockCO f b))) n
+  = GMany e body (JustO (BlockCO f (BHead b n)))
 
-catGraphNodeOC GNil                     n = gUnitOC $ BLast n
-catGraphNodeOC (GUnit b)                n = gUnitOC $ addToLeft b $ BLast n
-  where addToLeft :: Block n O O -> Block n O C -> Block n O C
-        addToLeft (BMiddle m)    g = m `BTail` g
-        addToLeft (b1 `BCat` b2) g = addToLeft b1 $ addToLeft b2 g
-catGraphNodeOC (GMany e body (JustO x)) n = GMany e body' NothingO
-  where body' = addBlock (x `BClosed` BLast n) body
+catGraphNodeOC GNil                     n = gUnitOC $ BlockOC BNil n
+catGraphNodeOC (GUnit b)                n = gUnitOC $ BlockOC b n
+catGraphNodeOC (GMany e body (JustO (BlockCO f x))) n
+  = GMany e (addBlock (BlockCC f x n) body) NothingO
 
 catNodeOOGraph n GNil                     = gUnitOO $ BMiddle n
-catNodeOOGraph n (GUnit b)                = gUnitOO $ BMiddle n `BCat` b
-catNodeOOGraph n (GMany (JustO e) body x) = GMany (JustO $ n `BTail` e) body x
+catNodeOOGraph n (GUnit b)                = gUnitOO $ BTail n b
+catNodeOOGraph n (GMany (JustO (BlockOC b l)) body x)
+   = GMany (JustO (BlockOC (n `BTail` b) l)) body x
 
-catNodeCOGraph n GNil                     = gUnitCO $ BFirst n
-catNodeCOGraph n (GUnit b)                = gUnitCO $ addToRight (BFirst n) b
-  where addToRight :: Block n C O -> Block n O O -> Block n C O
-        addToRight g (BMiddle m)    = g `BHead` m
-        addToRight g (b1 `BCat` b2) = addToRight (addToRight g b1) b2
-catNodeCOGraph n (GMany (JustO e) body x) = GMany NothingO body' x
-  where body' = addBlock (BFirst n `BClosed` e) body
+catNodeCOGraph f GNil                     = gUnitCO (BlockCO f BNil)
+catNodeCOGraph f (GUnit b)                = gUnitCO (BlockCO f b)
+catNodeCOGraph f (GMany (JustO (BlockOC b n)) body x)
+  = GMany NothingO (addBlock (BlockCC f b n) body) x
 
 
-
-
-
-blockGraph :: NonLocal n => Block n e x -> Graph n e x
-blockGraph b@(BFirst  {}) = gUnitCO b
+blockGraph :: NonLocal n => Block n O x -> Graph n O x
+blockGraph b@(BlockOC {}) = gUnitOC b
+blockGraph   (BNil  {})   = GNil
 blockGraph b@(BMiddle {}) = gUnitOO b
-blockGraph b@(BLast   {}) = gUnitOC b
 blockGraph b@(BCat {})    = gUnitOO b
-blockGraph b@(BHead {})   = gUnitCO b
-blockGraph b@(BTail {})   = gUnitOC b
-blockGraph b@(BClosed {}) = gUnitCC b
+blockGraph b@(BHead {})   = gUnitOO b
+blockGraph b@(BTail {})   = gUnitOO b
 
 
 -- | Function 'graphMapBlocks' enables a change of representation of blocks,
@@ -94,17 +86,21 @@ graphMapBlocks f = map
         map (GMany e b x) = GMany (fmap f e) (mapMap f b) (fmap f x)
 
 -- | Function 'blockMapNodes' enables a change of nodes in a block.
-blockMapNodes3 :: ( n C O -> n' C O
-                  , n O O -> n' O O
-                  , n O C -> n' O C)
+blockMapNodes3 :: forall n n' e x .
+                  ( n C O -> n' C O
+                  , n O O -> n' O O,
+                    n O C -> n' O C)
                -> Block n e x -> Block n' e x
-blockMapNodes3 (f, _, _) (BFirst n)     = BFirst (f n)
-blockMapNodes3 (_, m, _) (BMiddle n)    = BMiddle (m n)
-blockMapNodes3 (_, _, l) (BLast n)      = BLast (l n)
-blockMapNodes3 fs (BCat x y)            = BCat (blockMapNodes3 fs x) (blockMapNodes3 fs y)
-blockMapNodes3 fs@(_, m, _) (BHead x n) = BHead (blockMapNodes3 fs x) (m n)
-blockMapNodes3 fs@(_, m, _) (BTail n x) = BTail (m n) (blockMapNodes3 fs x)
-blockMapNodes3 fs (BClosed x y)         = BClosed (blockMapNodes3 fs x) (blockMapNodes3 fs y)
+blockMapNodes3 (f, m, l) b = go b
+  where go :: forall e x . Block n e x -> Block n' e x
+        go (BlockOC b y)   = (BlockOC $! go b) $! l y
+        go (BlockCO x b)   = (BlockCO $! f x) $! (go b)
+        go (BlockCC x b y) = ((BlockCC $! f x) $! go b) $! (l y)
+        go BNil            = BNil
+        go (BMiddle n)     = BMiddle $! m n
+        go (BCat x y)      = (BCat $! go x) $! (go y)
+        go (BHead x n)     = (BHead $! go x) $! (m n)
+        go (BTail n x)     = (BTail $! m n) $! (go x)
 
 blockMapNodes :: (forall e x. n e x -> n' e x)
               -> (Block n e x -> Block n' e x)
@@ -233,6 +229,7 @@ preorder_dfs_from_except blocks b visited =
                               return $ b `cons` bs
         get_children :: forall l. LabelsPtr l => l -> [block C C]
         get_children block = foldr add_id [] $ targetLabels block
+
         add_id id rst = case lookupFact id blocks of
                           Just b -> b : rst
                           Nothing -> rst
@@ -243,7 +240,8 @@ cons a as tail = a : as tail
 
 ----------------------------------------------------------------
 
-labelsDefined :: forall block n e x . NonLocal (block n) => Graph' block n e x -> LabelSet
+labelsDefined :: forall block n e x . NonLocal (block n) => Graph' block n e x
+              -> LabelSet
 labelsDefined GNil      = setEmpty
 labelsDefined (GUnit{}) = setEmpty
 labelsDefined (GMany _ body x) = mapFoldWithKey addEntry (exitLabel x) body
@@ -253,7 +251,8 @@ labelsDefined (GMany _ body x) = mapFoldWithKey addEntry (exitLabel x) body
         exitLabel NothingO  = setEmpty
         exitLabel (JustO b) = setSingleton (entryLabel b)
 
-labelsUsed :: forall block n e x. NonLocal (block n) => Graph' block n e x -> LabelSet
+labelsUsed :: forall block n e x. NonLocal (block n) => Graph' block n e x
+           -> LabelSet
 labelsUsed GNil      = setEmpty
 labelsUsed (GUnit{}) = setEmpty
 labelsUsed (GMany e body _) = mapFold addTargets (entryTargets e) body 

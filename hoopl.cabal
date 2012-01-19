@@ -26,8 +26,8 @@ Library
                      Compiler.Hoopl.Passes.DList,
 --                     Compiler.Hoopl.DataflowFold,
 --                     Compiler.Hoopl.OldDataflow,
-                     Compiler.Hoopl.GHC
-  Other-Modules:     Compiler.Hoopl.GraphUtil,
+                     Compiler.Hoopl.GHC,
+                     Compiler.Hoopl.GraphUtil,
                      -- GraphUtil should *never* be seen by clients.
                      -- The remaining modules are hidden *provisionally*
                      Compiler.Hoopl.Checkpoint,

@@ -78,6 +78,7 @@ instance IsMap LabelMap where
   mapEmpty = LM mapEmpty
   mapSingleton (Label k) v = LM (mapSingleton k v)
   mapInsert (Label k) v (LM m) = LM (mapInsert k v m)
+  mapInsertWith f (Label k) v (LM m) = LM (mapInsertWith f k v m)
   mapDelete (Label k) (LM m) = LM (mapDelete k m)
 
   mapUnion (LM x) (LM y) = LM (mapUnion x y)
@@ -95,6 +96,7 @@ instance IsMap LabelMap where
   mapKeys (LM m) = map uniqueToLbl (mapKeys m)
   mapToList (LM m) = [(uniqueToLbl k, v) | (k, v) <- mapToList m]
   mapFromList assocs = LM (mapFromList [(lblToUnique k, v) | (k, v) <- assocs])
+  mapFromListWith f assocs = LM (mapFromListWith f [(lblToUnique k, v) | (k, v) <- assocs])
 
 -----------------------------------------------------------------------------
 -- FactBase

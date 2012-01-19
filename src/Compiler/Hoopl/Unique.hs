@@ -78,6 +78,7 @@ instance IsMap UniqueMap where
   mapEmpty = UM M.empty
   mapSingleton (Unique k) v = UM (M.singleton k v)
   mapInsert (Unique k) v (UM m) = UM (M.insert k v m)
+  mapInsertWith f (Unique k) v (UM m) = UM (M.insertWith f k v m)
   mapDelete (Unique k) (UM m) = UM (M.delete k m)
 
   mapUnion (UM x) (UM y) = UM (M.union x y)
@@ -95,6 +96,7 @@ instance IsMap UniqueMap where
   mapKeys (UM m) = map intToUnique (M.keys m)
   mapToList (UM m) = [(intToUnique k, v) | (k, v) <- M.toList m]
   mapFromList assocs = UM (M.fromList [(uniqueToInt k, v) | (k, v) <- assocs])
+  mapFromListWith f assocs = UM (M.fromListWith f [(uniqueToInt k, v) | (k, v) <- assocs])
 
 ----------------------------------------------------------------
 -- Monads
