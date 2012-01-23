@@ -33,14 +33,15 @@ splice bcat = sp
 
         sp (GUnit b) (GMany (JustO e) bs x) = {-# SCC "sp2" #-} GMany (JustO (b `bcat` e)) bs x
 
-        sp (GMany e bs (JustO x)) (GUnit b2) = {-# SCC "sp3" #-} GMany e bs (JustO (x `bcat` b2))
+        sp (GMany e bs (JustO x)) (GUnit b2) = {-# SCC "sp3" #-} x `seq` GMany e bs (JustO x')
+             where x' = x `bcat` b2
 
         sp (GMany e1 bs1 (JustO x1)) (GMany (JustO e2) b2 x2)
-          = {-# SCC "sp4" #-} GMany e1 (b1 `bodyUnion` b2) x2
-          where b1 = addBlock (x1 `bcat` e2) bs1
+          = {-# SCC "sp4" #-} (GMany e1 $! b1 `bodyUnion` b2) x2
+          where b1   = (addBlock $! x1 `bcat` e2) bs1
 
         sp (GMany e1 b1 NothingO) (GMany NothingO b2 x2)
-          = {-# SCC "sp5" #-} GMany e1 (b1 `bodyUnion` b2) x2
+          = {-# SCC "sp5" #-} (GMany e1 $! b1 `bodyUnion` b2) x2
 
         sp _ _ = error "bogus GADT match failure"
 
