@@ -56,15 +56,15 @@ cat x y = case x of
   BNil -> y
 
   BlockCO l b1 -> case y of
-                   BlockOC b2 n -> BlockCC l (b1 `cat` b2) n
+                   BlockOC b2 n -> (BlockCC l $! (b1 `cat` b2)) n
                    BNil         -> x
-                   BMiddle n    -> BlockCO l (b1 `BHead` n)
-                   BCat{}       -> BlockCO l (b1 `BCat` y)
-                   BHead{}      -> BlockCO l (b1 `BCat` y)
-                   BTail{}      -> BlockCO l (b1 `BCat` y)
+                   BMiddle n    -> BlockCO l $! (b1 `cat` y)
+                   BCat{}       -> BlockCO l $! (b1 `cat` y)
+                   BHead{}      -> BlockCO l $! (b1 `cat` y)
+                   BTail{}      -> BlockCO l $! (b1 `cat` y)
 
   BMiddle n -> case y of
-                   BlockOC b2 n2 -> BlockOC (n `BTail` b2) n2
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
                    BNil          -> x
                    BMiddle{}     -> BTail n y
                    BCat{}        -> BTail n y
@@ -72,7 +72,7 @@ cat x y = case x of
                    BTail{}       -> BTail n y
 
   BCat{} -> case y of
-                   BlockOC b3 n2 -> BlockOC (x `cat` b3) n2
+                   BlockOC b3 n2 -> (BlockOC $! (x `cat` b3)) n2
                    BNil          -> x
                    BMiddle n     -> BHead x n
                    BCat{}        -> BCat x y
@@ -80,7 +80,7 @@ cat x y = case x of
                    BTail{}       -> BCat x y
 
   BHead{} -> case y of
-                   BlockOC b2 n2 -> BlockOC (x `cat` b2) n2
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
                    BNil          -> x
                    BMiddle n     -> BHead x n
                    BCat{}        -> BCat x y
@@ -89,7 +89,7 @@ cat x y = case x of
 
 
   BTail{} -> case y of
-                   BlockOC b2 n2 -> BlockOC (x `BCat` b2) n2
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
                    BNil          -> x
                    BMiddle n     -> BHead x n
                    BCat{}        -> BCat x y
