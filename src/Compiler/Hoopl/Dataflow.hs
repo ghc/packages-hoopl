@@ -21,7 +21,7 @@ module Compiler.Hoopl.Dataflow
   , wrapBR, wrapBR2
   , BwdRewrite(..),  mkBRewrite,  mkBRewrite3,  getBRewrite3, noBwdRewrite
 
-  , analyzeAndRewriteFwd,  analyzeAndRewriteBwd
+--  , analyzeAndRewriteFwd,  analyzeAndRewriteBwd
 
   -- * Respecting Fuel
 
@@ -171,6 +171,7 @@ type family   Fact x f :: *
 type instance Fact C f = FactBase f
 type instance Fact O f = f
 
+{-
 -- | if the graph being analyzed is open at the entry, there must
 --   be no other entry point, or all goes horribly wrong...
 analyzeAndRewriteFwd
@@ -329,7 +330,7 @@ forwardBlockList :: (NonLocal n, LabelsPtr entry)
 -- This produces a list of blocks in order suitable for forward analysis,
 -- along with the list of Labels it may depend on for facts.
 forwardBlockList entries blks = postorder_dfs_from blks entries
-
+-}
 -----------------------------------------------------------------------------
 --              Backward analysis and rewriting: the interface
 -----------------------------------------------------------------------------
@@ -414,7 +415,7 @@ mkBRewrite f = mkBRewrite3 f f f
 -----------------------------------------------------------------------------
 --              Backward implementation
 -----------------------------------------------------------------------------
-
+{-
 arbGraph :: forall m n f e x .
             (NonLocal n, CheckpointMonad m) => BwdPass m n f -> 
             Entries e -> Graph n e x -> Fact x f -> m (DG f n e x, Fact e f)
@@ -705,7 +706,7 @@ we'll propagate (x=4) to L4, and nuke the otherwise-good rewriting of L4.
   case we must treat every block as reachable; it might finish with a
   'return', and therefore have no successors, for example.
 -}
-
+-}
 -----------------------------------------------------------------------------
 --      DG: an internal data type for 'decorated graphs'
 --          TOTALLY internal to Hoopl; each block is decorated with a fact
