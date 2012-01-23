@@ -8,7 +8,7 @@ module Compiler.Hoopl.Graph
   , MaybeO(..), MaybeC(..), Shape(..), IndexedCO
   , NonLocal(entryLabel, successors)
   , emptyBody, addBlock, bodyList
-  , mapGraph, mapMaybeO, mapMaybeC, mapBlock
+  , mapGraph, mapGraphBlocks, mapMaybeO, mapMaybeC, mapBlock
   )
 where
 
@@ -123,12 +123,14 @@ bodyList (Body body) = mapToList body
 
 -- | Maps over all nodes in a graph.
 mapGraph :: (forall e x. n e x -> n' e x) -> Graph n e x -> Graph n' e x
-mapGraph _ GNil = GNil
-mapGraph f (GUnit b) = GUnit (mapBlock f b)
-mapGraph f (GMany x y z)
-    = GMany (mapMaybeO (mapBlock f) x)
-            (mapMap (mapBlock f) y)
-            (mapMaybeO (mapBlock f) z)
+mapGraph f = mapGraphBlocks (mapBlock f)
+
+mapGraphBlocks :: (forall e x . Block n e x -> Block n' e x)
+               -> Graph n e x -> Graph n' e x
+mapGraphBlocks _ GNil = GNil
+mapGraphBlocks f (GUnit b) = GUnit (f b)
+mapGraphBlocks f (GMany e b x)
+   = GMany (mapMaybeO f e) (mapMap f b) (mapMaybeO f x)
 
 mapMaybeO :: (a -> b) -> MaybeO ex a -> MaybeO ex b
 mapMaybeO _  NothingO = NothingO
