@@ -11,6 +11,7 @@ module Compiler.Hoopl.XUtil
 
     -- ** Simple operations on blocks
     isEmptyBlock
+  , emptyBlock, blockCons, blockSnoc
   , firstNode, lastNode, endNodes
   , blockSplitHead, blockSplitTail, blockSplit
   , blockJoinHead, blockJoinTail, blockJoin
@@ -57,34 +58,37 @@ import Compiler.Hoopl.Util
 -- -----------------------------------------------------------------------------
 -- Simple operations on Blocks
 
+
+-- Predicates
+
 isEmptyBlock :: Block n e x -> Bool
 isEmptyBlock BNil       = True
 isEmptyBlock (BCat l r) = isEmptyBlock l && isEmptyBlock r
 isEmptyBlock _          = False
 
 
-firstNode :: Block n C x -> n C O
-firstNode (BlockCO n _)   = n
-firstNode (BlockCC n _ _) = n
+-- Building
 
-lastNode :: Block n x C -> n O C
-lastNode (BlockOC   _ n) = n
-lastNode (BlockCC _ _ n) = n
+emptyBlock :: Block n O O
+emptyBlock = BNil
 
-endNodes :: Block n C C -> (n C O, n O C)
-endNodes (BlockCC f _ l) = (f,l)
+blockCons :: n O O -> Block n O x -> Block n O x
+blockCons n b = case b of
+  BlockOC b l  -> BlockOC (n `BTail` b) l
+  BNil{}    -> n `BTail` b
+  BMiddle{} -> n `BTail` b
+  BCat{}    -> n `BTail` b
+  BHead{}   -> n `BTail` b
+  BTail{}   -> n `BTail` b
 
-
-blockSplitHead :: Block n C x -> (n C O, Block n O x)
-blockSplitHead (BlockCO n b)   = (n, b)
-blockSplitHead (BlockCC n b t) = (n, BlockOC b t)
-
-blockSplitTail :: Block n e C -> (Block n e O, n O C)
-blockSplitTail (BlockOC b n)   = (b, n)
-blockSplitTail (BlockCC f b t) = (BlockCO f b, t)
-
-blockSplit :: Block n C C -> (n C O, Block n O O, n O C)
-blockSplit (BlockCC f b t) = (f, b, t)
+blockSnoc :: Block n e O -> n O O -> Block n e O
+blockSnoc b n = case b of
+  BlockCO f b -> BlockCO f (b `BHead` n)
+  BNil{}      -> b `BHead` n
+  BMiddle{}   -> b `BHead` n
+  BCat{}      -> b `BHead` n
+  BHead{}     -> b `BHead` n
+  BTail{}     -> b `BHead` n
 
 blockJoinHead :: n C O -> Block n O x -> Block n C x
 blockJoinHead f (BlockOC b l) = BlockCC f b l
@@ -100,14 +104,30 @@ blockJoin f b t = BlockCC f b t
 blockAppend :: Block n e O -> Block n O x -> Block n e x
 blockAppend = cat
 
-replaceFirstNode :: Block n C x -> n C O -> Block n C x
-replaceFirstNode (BlockCO _ b)   f = BlockCO f b
-replaceFirstNode (BlockCC _ b n) f = BlockCC f b n
 
-replaceLastNode :: Block n x C -> n O C -> Block n x C
-replaceLastNode (BlockOC   b _) n = BlockOC b n
-replaceLastNode (BlockCC l b _) n = BlockCC l b n
+-- Taking apart
 
+firstNode :: Block n C x -> n C O
+firstNode (BlockCO n _)   = n
+firstNode (BlockCC n _ _) = n
+
+lastNode :: Block n x C -> n O C
+lastNode (BlockOC   _ n) = n
+lastNode (BlockCC _ _ n) = n
+
+endNodes :: Block n C C -> (n C O, n O C)
+endNodes (BlockCC f _ l) = (f,l)
+
+blockSplitHead :: Block n C x -> (n C O, Block n O x)
+blockSplitHead (BlockCO n b)   = (n, b)
+blockSplitHead (BlockCC n b t) = (n, BlockOC b t)
+
+blockSplitTail :: Block n e C -> (Block n e O, n O C)
+blockSplitTail (BlockOC b n)   = (b, n)
+blockSplitTail (BlockCC f b t) = (BlockCO f b, t)
+
+blockSplit :: Block n C C -> (n C O, Block n O O, n O C)
+blockSplit (BlockCC f b t) = (f, b, t)
 
 blockToList :: Block n O O -> [n O O]
 blockToList b = go b []
@@ -120,6 +140,18 @@ blockToList b = go b []
 
 blockFromList :: [n O O] -> Block n O O
 blockFromList = foldr BTail BNil
+
+
+-- Modifying
+
+replaceFirstNode :: Block n C x -> n C O -> Block n C x
+replaceFirstNode (BlockCO _ b)   f = BlockCO f b
+replaceFirstNode (BlockCC _ b n) f = BlockCC f b n
+
+replaceLastNode :: Block n x C -> n O C -> Block n x C
+replaceLastNode (BlockOC   b _) n = BlockOC b n
+replaceLastNode (BlockCC l b _) n = BlockCC l b n
+
 
 -----------------------------------------------------------------------------
 
