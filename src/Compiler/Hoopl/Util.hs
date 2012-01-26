@@ -36,9 +36,9 @@ gUnitCO b = GMany NothingO  emptyBody (JustO b)
 gUnitCC b = GMany NothingO (addBlock b emptyBody) NothingO
 
 
-catGraphNodeOO ::            Graph n e O -> n O O -> Graph n e O
+catGraphNodeOO ::               Graph n e O -> n O O -> Graph n e O
 catGraphNodeOC :: NonLocal n => Graph n e O -> n O C -> Graph n e C
-catNodeOOGraph ::            n O O -> Graph n O x -> Graph n O x
+catNodeOOGraph ::               n O O -> Graph n O x -> Graph n O x
 catNodeCOGraph :: NonLocal n => n C O -> Graph n O x -> Graph n C x
 
 catGraphNodeOO GNil                     n = gUnitOO $ BMiddle n
