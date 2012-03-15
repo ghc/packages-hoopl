@@ -62,8 +62,10 @@ catNodeCOGraph f (GMany (JustO (BlockOC b n)) body x)
   = GMany NothingO (addBlock (BlockCC f b n) body) x
 
 
-blockGraph :: NonLocal n => Block n O x -> Graph n O x
+blockGraph :: NonLocal n => Block n e x -> Graph n e x
+blockGraph b@(BlockCO {}) = gUnitCO b
 blockGraph b@(BlockOC {}) = gUnitOC b
+blockGraph b@(BlockCC {}) = gUnitCC b
 blockGraph   (BNil  {})   = GNil
 blockGraph b@(BMiddle {}) = gUnitOO b
 blockGraph b@(BCat {})    = gUnitOO b
