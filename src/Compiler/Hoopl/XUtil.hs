@@ -6,25 +6,29 @@
 -- | Utilities for clients of Hoopl, not used internally.
 
 module Compiler.Hoopl.XUtil
-  ( firstXfer, distributeXfer
-  , distributeFact, distributeFactBwd
+  ( {- firstXfer, distributeXfer
+  ,-} distributeFact, distributeFactBwd
   , successorFacts
   , joinFacts
   , joinOutFacts -- deprecated
   , joinMaps
   , foldGraphNodes
   , foldBlockNodesF, foldBlockNodesB, foldBlockNodesF3, foldBlockNodesB3
+  {-
   , tfFoldBlock
   , ScottBlock(ScottBlock), scottFoldBlock
   , fbnf3
+  -}
   , blockToNodeList, blockOfNodeList
   , blockToNodeList'   -- alternate version using fold
+  {-
   , blockToNodeList''  -- alternate version using scottFoldBlock
   , blockToNodeList''' -- alternate version using tfFoldBlock
   , analyzeAndRewriteFwdBody, analyzeAndRewriteBwdBody
   , analyzeAndRewriteFwdOx, analyzeAndRewriteBwdOx
   , noEntries
   , BlockResult(..), lookupBlock
+  -}
   )
 where
 
@@ -38,6 +42,19 @@ import Compiler.Hoopl.Graph
 import Compiler.Hoopl.Label
 import Compiler.Hoopl.Util
 
+blockToList :: Block n O O -> [n O O]
+blockToList b = go b []
+   where go :: Block n O O -> [n O O] -> [n O O]
+         go BNil         r = r
+         go (BMiddle n)  r = n : r
+         go (BCat b1 b2) r = go b1 $! go b2 r
+         go (BHead b1 n) r = go b1 (n:r)
+         go (BTail n b1) r = n : go b1 r
+
+blockFromList :: [n O O] -> Block n O O
+blockFromList = foldr BTail BNil
+
+{-
 
 -- | Forward dataflow analysis and rewriting for the special case of a Body.
 -- A set of entry points must be supplied; blocks not reachable from
@@ -126,6 +143,7 @@ distributeXfer :: NonLocal n
                => DataflowLattice f -> (n O C -> f -> f) -> (n O C -> f -> FactBase f)
 distributeXfer lattice xfer n f =
     mkFactBase lattice [ (l, xfer n f) | l <- successors n ]
+-}
 
 -- | This utility function handles a common case in which a transfer function
 -- for a last node takes the incoming fact unchanged and simply distributes
@@ -173,7 +191,7 @@ joinMaps eltJoin l (OldFact old) (NewFact new) = M.foldrWithKey add (NoChange, o
                         (NoChange,   _)  -> (ch, joinmap)
 
 
-
+{-
 -- | A fold function that relies on the IndexedCO type function.
 --   Note that the type parameter e is available to the functions
 --   that are applied to the middle and last nodes.
@@ -198,7 +216,6 @@ tfFoldBlock (f, m, l) bl bo = block bl
         oblock (n `BTail` b2)    = m n       `cat` oblock b2
         cat :: forall b c a. (a -> b) -> (b -> c) -> a -> c
         cat f f' = f' . f
-
 
 type NodeList' e x n = (MaybeC e (n C O), [n O O], MaybeC x (n O C))
 blockToNodeList''' ::
@@ -312,7 +329,7 @@ blockToNodeList'' = finish . unList . scottFoldBlock (ScottBlock f m l cat)
           NL (e, ms, NothingC) `cat` NL (NothingC, ms', x) = NL (e, ms . ms', x)
           finish :: forall t t1 t2 a. (t, [a] -> t1, t2) -> (t, t1, t2)
           finish (e, ms, x) = (e, ms [], x)
-
+-}
 
 
 blockToNodeList' :: Block n e x -> (MaybeC e (n C O), [n O O], MaybeC x (n O C))
@@ -334,27 +351,29 @@ foldBlockNodesF3''' :: forall n a b c .
                     -> (forall e x . MaybeC x (n O C) -> b e -> c e x)
                     -> (forall e x . Block n e x      -> a   -> c e x)
 foldBlockNodesF3''' ff fm fl = block
-  where block   :: forall e x . Block n e x -> a   -> c e x
-        blockCO ::              Block n C O -> a   -> b C
-        blockOO :: forall e .   Block n O O -> b e -> b e
-        blockOC :: forall e .   Block n O C -> b e -> c e C
-        block (b1 `BClosed` b2) = blockCO b1       `cat` blockOC b2
-        block (BFirst  node)    = ff (JustC node)  `cat` fl NothingC
-        block (b @ BHead {})    = blockCO b        `cat` fl NothingC
-        block (BMiddle node)    = ff NothingC `cat` fm node   `cat` fl NothingC
-        block (b @ BCat {})     = ff NothingC `cat` blockOO b `cat` fl NothingC
-        block (BLast   node)    = ff NothingC `cat` fl (JustC node)
-        block (b @ BTail {})    = ff NothingC `cat` blockOC b
-        blockCO (BFirst n)      = ff (JustC n)
-        blockCO (BHead b n)     = blockCO b `cat` fm n
-        blockOO (BMiddle n)     = fm n
-        blockOO (BCat b1 b2)    = blockOO b1 `cat` blockOO b2
-        blockOC (BLast n)       = fl (JustC n)
-        blockOC (BTail n b)     = fm n `cat` blockOC b
+  where
+        block   :: forall e x . Block n e x -> a   -> c e x
+        block (BlockCO f b)   = ff (JustC f) `cat` blockOO b `cat` fl NothingC
+        block (BlockCC f b l) = ff (JustC f) `cat` blockOO b `cat` fl (JustC l)
+        block (BlockOC   b l) = ff NothingC  `cat` blockOO b `cat` fl (JustC l)
+        block BNil            = ff NothingC  `cat`                 fl NothingC
+        block (BMiddle n)     = ff NothingC  `cat` fm n      `cat` fl NothingC
+        block b@BCat{}        = ff NothingC  `cat` blockOO b `cat` fl NothingC
+        block b@BHead{}       = ff NothingC  `cat` blockOO b `cat` fl NothingC
+        block b@BTail{}       = ff NothingC  `cat` blockOO b `cat` fl NothingC
+
+        blockOO :: forall e . Block n O O -> b e -> b e
+        blockOO BNil = id
+        blockOO (BMiddle n)  = fm n
+        blockOO (BCat b1 b2) = blockOO b1 `cat` blockOO b2
+        blockOO (BHead b1 n) = blockOO b1 `cat` fm n
+        blockOO (BTail n b1) = fm n `cat` blockOO b1
+
         cat :: forall a b c. (a -> b) -> (b -> c) -> a -> c
         f `cat` g = g . f 
 
 
+{-
 -- | The following function is easy enough to define but maybe not so useful
 foldBlockNodesF3' :: forall n a b c .
                    ( n C O -> a -> b
@@ -383,7 +402,7 @@ foldBlockNodesF3' (ff, fm, fl) missingFirst missingLast = block
         blockOC (BTail n b)  = fm n `cat` blockOC b
         cat :: forall a b c. (a -> b) -> (b -> c) -> a -> c
         f `cat` g = g . f 
-
+-}
 -- | Fold a function over every node in a block, forward or backward.
 -- The fold function must be polymorphic in the shape of the nodes.
 foldBlockNodesF3 :: forall n a b c .
@@ -412,28 +431,32 @@ foldGraphNodes :: forall n a .
 
 foldBlockNodesF3 (ff, fm, fl) = block
   where block :: forall e x . Block n e x -> IndexedCO e a b -> IndexedCO x c b
-        block (BFirst  node)    = ff node
+        block (BlockCO f b  )   = ff f `cat` block b
+        block (BlockCC f b l)   = ff f `cat` block b `cat` fl l
+        block (BlockOC   b l)   =            block b `cat` fl l
+        block BNil              = id
         block (BMiddle node)    = fm node
-        block (BLast   node)    = fl node
         block (b1 `BCat`    b2) = block b1 `cat` block b2
-        block (b1 `BClosed` b2) = block b1 `cat` block b2
         block (b1 `BHead` n)    = block b1 `cat` fm n
         block (n `BTail` b2)    = fm n `cat` block b2
         cat :: forall a b c. (a -> b) -> (b -> c) -> a -> c
         cat f f' = f' . f
+
 foldBlockNodesF f = foldBlockNodesF3 (f, f, f)
 
 foldBlockNodesB3 (ff, fm, fl) = block
   where block :: forall e x . Block n e x -> IndexedCO x a b -> IndexedCO e c b
-        block (BFirst  node)    = ff node
+        block (BlockCO f b  )   = ff f `cat` block b
+        block (BlockCC f b l)   = ff f `cat` block b `cat` fl l
+        block (BlockOC   b l)   =            block b `cat` fl l
+        block BNil              = id
         block (BMiddle node)    = fm node
-        block (BLast   node)    = fl node
         block (b1 `BCat`    b2) = block b1 `cat` block b2
-        block (b1 `BClosed` b2) = block b1 `cat` block b2
         block (b1 `BHead` n)    = block b1 `cat` fm n
         block (n `BTail` b2)    = fm n `cat` block b2
         cat :: forall a b c. (b -> c) -> (a -> b) -> a -> c
         cat f f' = f . f'
+
 foldBlockNodesB f = foldBlockNodesB3 (f, f, f)
 
 
@@ -467,34 +490,24 @@ foldGraphNodes f = graph
 -- on the shape of the block entry *and* exit.
 blockToNodeList :: Block n e x -> (MaybeC e (n C O), [n O O], MaybeC x (n O C))
 blockToNodeList block = case block of
-  BFirst n    -> (JustC n, [], NothingC)
-  BMiddle n   -> (NothingC, [n], NothingC)
-  BLast n     -> (NothingC, [], JustC n)
-  BCat {}     -> (NothingC, foldOO block [], NothingC)
-  BHead x n   -> case foldCO x [n] of (f, m) -> (f, m, NothingC)
-  BTail n x   -> case foldOC x of (m, l) -> (NothingC, n : m, l)
-  BClosed x y -> case foldOC y of (m, l) -> case foldCO x m of (f, m') -> (f, m', l)
-  where foldCO :: Block n C O -> [n O O] -> (MaybeC C (n C O), [n O O])
-        foldCO (BFirst n) m  = (JustC n, m)
-        foldCO (BHead x n) m = foldCO x (n : m)
-
-        foldOO :: Block n O O -> [n O O] -> [n O O]
-        foldOO (BMiddle n) acc = n : acc
-        foldOO (BCat x y) acc  = foldOO x $ foldOO y acc
-
-        foldOC :: Block n O C -> ([n O O], MaybeC C (n O C))
-        foldOC (BLast n)   = ([], JustC n)
-        foldOC (BTail n x) = case foldOC x of (m, l) -> (n : m, l)
+  BlockCO f b   -> (JustC f,  blockToList b, NothingC)
+  BlockCC f b l -> (JustC f,  blockToList b, JustC l)
+  BlockOC   b l -> (NothingC, blockToList b, JustC l)
+  BNil          -> (NothingC, [],        NothingC)
+  BMiddle n     -> (NothingC, [n],       NothingC)
+  b@BCat{}      -> (NothingC, blockToList b, NothingC)
+  b@BTail{}     -> (NothingC, blockToList b, NothingC)
+  b@BHead{}     -> (NothingC, blockToList b, NothingC)
 
 -- | Convert a list of nodes to a block. The entry and exit node
 -- must or must not be present depending on the shape of the block.
 blockOfNodeList :: (MaybeC e (n C O), [n O O], MaybeC x (n O C)) -> Block n e x
 blockOfNodeList (NothingC, [], NothingC) = error "No nodes to created block from in blockOfNodeList"
-blockOfNodeList (NothingC, m, NothingC)  = foldr1 BCat (map BMiddle m)
-blockOfNodeList (NothingC, m, JustC l)   = foldr BTail (BLast l) m
-blockOfNodeList (JustC f, m, NothingC)   = foldl BHead (BFirst f) m
-blockOfNodeList (JustC f, m, JustC l)    = BClosed (BFirst f) $ foldr BTail (BLast l) m
-
+blockOfNodeList (NothingC, m, NothingC)  = blockFromList m
+blockOfNodeList (NothingC, m, JustC l)   = BlockOC   (blockFromList m) l
+blockOfNodeList (JustC f, m, NothingC)   = BlockCO f (blockFromList m)
+blockOfNodeList (JustC f, m, JustC l)    = BlockCC f (blockFromList m) l
+{-
 data BlockResult n x where
   NoBlock   :: BlockResult n x
   BodyBlock :: Block n C C -> BlockResult n x
@@ -509,3 +522,4 @@ lookupBlock (GMany _ body _) lbl =
     Nothing -> NoBlock
 lookupBlock GNil      _ = NoBlock
 lookupBlock (GUnit _) _ = NoBlock
+-}

@@ -29,7 +29,7 @@ import Compiler.Hoopl.Debug
 import Compiler.Hoopl.Fuel hiding (withFuel, getFuel, setFuel)
 import Compiler.Hoopl.Graph hiding 
    ( Body
-   , BCat, BHead, BTail, BClosed -- OK to expose BFirst, BMiddle, BLast
+   , BCat, BHead, BTail -- expose some other bits of Block
    )
 import Compiler.Hoopl.Graph (Body)
 import Compiler.Hoopl.Label hiding (uniqueToLbl, lblToUnique)

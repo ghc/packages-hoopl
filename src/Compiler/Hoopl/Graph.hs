@@ -37,17 +37,15 @@ data C
 -- Clients should avoid manipulating blocks and should stick to either nodes
 -- or graphs.
 data Block n e x where
-  -- nodes
-  BFirst  :: n C O                 -> Block n C O -- x^ block holds a single first node
-  BMiddle :: n O O                 -> Block n O O -- x^ block holds a single middle node
-  BLast   :: n O C                 -> Block n O C -- x^ block holds a single last node
+  BlockCO  :: n C O -> Block n O O          -> Block n C O
+  BlockCC  :: n C O -> Block n O O -> n O C -> Block n C C
+  BlockOC  ::          Block n O O -> n O C -> Block n O C
 
-  -- concatenation operations
-  BCat    :: Block n O O -> Block n O O -> Block n O O -- non-list-like
-  BHead   :: Block n C O -> n O O       -> Block n C O
-  BTail   :: n O O       -> Block n O C -> Block n O C  
-
-  BClosed :: Block n C O -> Block n O C -> Block n C C -- the zipper
+  BNil    :: Block n O O
+  BMiddle :: n O O                      -> Block n O O
+  BCat    :: Block n O O -> Block n O O -> Block n O O
+  BHead   :: Block n O O -> n O O       -> Block n O O
+  BTail   :: n O O       -> Block n O O -> Block n O O
 
 -- | A (possibly empty) collection of closed/closed blocks
 type Body n = LabelMap (Block n C C)
@@ -101,12 +99,11 @@ class NonLocal thing where
   successors :: thing e C -> [Label] -- ^ Gives control-flow successors
 
 instance NonLocal n => NonLocal (Block n) where
-  entryLabel (BFirst n)    = entryLabel n
-  entryLabel (BHead h _)   = entryLabel h
-  entryLabel (BClosed h _) = entryLabel h
-  successors (BLast n)     = successors n
-  successors (BTail _ t)   = successors t
-  successors (BClosed _ t) = successors t
+  entryLabel (BlockCO f _)   = entryLabel f
+  entryLabel (BlockCC f _ _) = entryLabel f
+
+  successors (BlockOC   _ n) = successors n
+  successors (BlockCC _ _ n) = successors n
 
 ------------------------------
 emptyBody :: LabelMap (thing C C)
@@ -140,10 +137,11 @@ mapMaybeC _  NothingC = NothingC
 mapMaybeC f (JustC b) = JustC (mapBlock f b)
 
 mapBlock :: (forall e x. n e x -> n' e x) -> Block n e x -> Block n' e x
-mapBlock f (BFirst n)      = BFirst  (f n)
+mapBlock f (BlockCO n b  ) = BlockCO (f n) (mapBlock f b)
+mapBlock f (BlockOC   b n) = BlockOC       (mapBlock f b) (f n)
+mapBlock f (BlockCC n b m) = BlockCC (f n) (mapBlock f b) (f m)
+mapBlock _  BNil           = BNil
 mapBlock f (BMiddle n)     = BMiddle (f n)
-mapBlock f (BLast n)       = BLast   (f n)
 mapBlock f (BCat b1 b2)    = BCat    (mapBlock f b1) (mapBlock f b2)
 mapBlock f (BHead b n)     = BHead   (mapBlock f b)  (f n)
 mapBlock f (BTail n b)     = BTail   (f n)  (mapBlock f b)
-mapBlock f (BClosed b1 b2) = BClosed (mapBlock f b1) (mapBlock f b2)

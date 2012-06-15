@@ -232,14 +232,16 @@ arfGraph pass entries = graph
 
     -- Lift from nodes to blocks
 -- @ start block.tex -2
-    block (BFirst  n)  = node n
+    block BNil          = \f -> return (dgnil, f)
+    block (BlockCO l b)   = node l `cat` block b
+    block (BlockCC l b n) = node l `cat` block b `cat` node n
+    block (BlockOC   b n) =              block b `cat` node n
+
     block (BMiddle n)  = node n
-    block (BLast   n)  = node n
     block (BCat b1 b2) = block b1 `cat` block b2
 -- @ end block.tex
     block (BHead h n)  = block h  `cat` node n
     block (BTail n t)  = node  n  `cat` block t
-    block (BClosed h t)= block h  `cat` block t
 
 -- @ start node.tex -4
     node n f
@@ -419,13 +421,15 @@ arbGraph pass entries = graph
              c _ _ = error "bogus GADT pattern match failure"
 
     -- Lift from nodes to blocks
-    block (BFirst  n)  = node n
+    block BNil          = \f -> return (dgnil, f)
+    block (BlockCO l b)   = node l `cat` block b
+    block (BlockCC l b n) = node l `cat` block b `cat` node n
+    block (BlockOC   b n) =              block b `cat` node n
+
     block (BMiddle n)  = node n
-    block (BLast   n)  = node n
     block (BCat b1 b2) = block b1 `cat` block b2
     block (BHead h n)  = block h  `cat` node n
     block (BTail n t)  = node  n  `cat` block t
-    block (BClosed h t)= block h  `cat` block t
 
     node n f
       = do { bwdres <- brewrite pass n f
@@ -768,7 +772,7 @@ class ShapeLifter e x where
               -> Fact x f -> m (Maybe (Graph n e x, BwdRewrite m n f))
 
 instance ShapeLifter C O where
-  singletonDG f = gUnitCO . DBlock f . BFirst
+  singletonDG f n = gUnitCO (DBlock f (BlockCO n BNil))
   fwdEntryFact     n f  = mapSingleton (entryLabel n) f
   bwdEntryFact lat n fb = getFact lat (entryLabel n) fb
   ftransfer (FwdPass {fp_transfer = FwdTransfer3 (ft, _, _)}) n f = ft n f
@@ -788,7 +792,7 @@ instance ShapeLifter O O where
   fwdEntryLabel _ = NothingC
 
 instance ShapeLifter O C where
-  singletonDG f = gUnitOC . DBlock f . BLast
+  singletonDG f n = gUnitOC (DBlock f (BlockOC BNil n))
   fwdEntryFact   _ f = f
   bwdEntryFact _ _ f = f
   ftransfer (FwdPass {fp_transfer = FwdTransfer3 (_, _, ft)}) n f = ft n f

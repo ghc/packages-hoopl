@@ -29,18 +29,19 @@ splice bcat = sp
         sp GNil g2 = g2
         sp g1 GNil = g1
 
-        sp (GUnit b1) (GUnit b2) = GUnit (b1 `bcat` b2)
+        sp (GUnit b1) (GUnit b2) = {-# SCC "sp1" #-} GUnit $! b1 `bcat` b2
 
-        sp (GUnit b) (GMany (JustO e) bs x) = GMany (JustO (b `bcat` e)) bs x
+        sp (GUnit b) (GMany (JustO e) bs x) = {-# SCC "sp2" #-} GMany (JustO (b `bcat` e)) bs x
 
-        sp (GMany e bs (JustO x)) (GUnit b2) = GMany e bs (JustO (x `bcat` b2))
+        sp (GMany e bs (JustO x)) (GUnit b2) = {-# SCC "sp3" #-} x `seq` GMany e bs (JustO x')
+             where x' = x `bcat` b2
 
         sp (GMany e1 bs1 (JustO x1)) (GMany (JustO e2) b2 x2)
-          = GMany e1 (b1 `bodyUnion` b2) x2
-          where b1 = addBlock (x1 `bcat` e2) bs1
+          = {-# SCC "sp4" #-} (GMany e1 $! b1 `bodyUnion` b2) x2
+          where b1   = (addBlock $! x1 `bcat` e2) bs1
 
         sp (GMany e1 b1 NothingO) (GMany NothingO b2 x2)
-          = GMany e1 (b1 `bodyUnion` b2) x2
+          = {-# SCC "sp5" #-} (GMany e1 $! b1 `bodyUnion` b2) x2
 
         sp _ _ = error "bogus GADT match failure"
 
@@ -52,23 +53,49 @@ gSplice :: NonLocal n => Graph n e a -> Graph n a x -> Graph n e x
 gSplice = splice cat
 
 cat :: Block n e O -> Block n O x -> Block n e x
-cat b1@(BFirst {})     (BMiddle n)  = BHead   b1 n
-cat b1@(BFirst {})  b2@(BLast{})    = BClosed b1 b2
-cat b1@(BFirst {})  b2@(BTail{})    = BClosed b1 b2
-cat b1@(BFirst {})     (BCat b2 b3) = (b1 `cat` b2) `cat` b3
-cat b1@(BHead {})      (BCat b2 b3) = (b1 `cat` b2) `cat` b3
-cat b1@(BHead {})      (BMiddle n)  = BHead   b1 n
-cat b1@(BHead {})   b2@(BLast{})    = BClosed b1 b2
-cat b1@(BHead {})   b2@(BTail{})    = BClosed b1 b2
-cat b1@(BMiddle {}) b2@(BMiddle{})  = BCat    b1 b2
-cat    (BMiddle n)  b2@(BLast{})    = BTail    n b2
-cat b1@(BMiddle {}) b2@(BCat{})     = BCat    b1 b2
-cat    (BMiddle n)  b2@(BTail{})    = BTail    n b2
-cat    (BCat b1 b2) b3@(BLast{})    = b1 `cat` (b2 `cat` b3)
-cat    (BCat b1 b2) b3@(BTail{})    = b1 `cat` (b2 `cat` b3)
-cat b1@(BCat {})    b2@(BCat{})     = BCat    b1 b2
-cat b1@(BCat {})    b2@(BMiddle{})  = BCat    b1 b2
+cat x y = case x of
+  BNil -> y
 
+  BlockCO l b1 -> case y of
+                   BlockOC b2 n -> (BlockCC l $! (b1 `cat` b2)) n
+                   BNil         -> x
+                   BMiddle n    -> BlockCO l $! (b1 `cat` y)
+                   BCat{}       -> BlockCO l $! (b1 `cat` y)
+                   BHead{}      -> BlockCO l $! (b1 `cat` y)
+                   BTail{}      -> BlockCO l $! (b1 `cat` y)
+
+  BMiddle n -> case y of
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
+                   BNil          -> x
+                   BMiddle{}     -> BTail n y
+                   BCat{}        -> BTail n y
+                   BHead{}       -> BTail n y
+                   BTail{}       -> BTail n y
+
+  BCat{} -> case y of
+                   BlockOC b3 n2 -> (BlockOC $! (x `cat` b3)) n2
+                   BNil          -> x
+                   BMiddle n     -> BHead x n
+                   BCat{}        -> BCat x y
+                   BHead{}       -> BCat x y
+                   BTail{}       -> BCat x y
+
+  BHead{} -> case y of
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
+                   BNil          -> x
+                   BMiddle n     -> BHead x n
+                   BCat{}        -> BCat x y
+                   BHead{}       -> BCat x y
+                   BTail{}       -> BCat x y
+
+
+  BTail{} -> case y of
+                   BlockOC b2 n2 -> (BlockOC $! (x `cat` b2)) n2
+                   BNil          -> x
+                   BMiddle n     -> BHead x n
+                   BCat{}        -> BCat x y
+                   BHead{}       -> BCat x y
+                   BTail{}       -> BCat x y
 
 ----------------------------------------------------------------
 
@@ -80,24 +107,22 @@ cat b1@(BCat {})    b2@(BMiddle{})  = BCat    b1 b2
 -- can be front-biased; a closed/open block is inherently back-biased.
 
 frontBiasBlock :: Block n e x -> Block n e x
-frontBiasBlock b@(BFirst  {}) = b
-frontBiasBlock b@(BMiddle {}) = b
-frontBiasBlock b@(BLast   {}) = b
-frontBiasBlock b@(BCat {}) = rotate b
-  where -- rotate and append ensure every left child of ZCat is ZMiddle
-        -- provided 2nd argument to append already has this property
-    rotate :: Block n O O -> Block n O O
-    append :: Block n O O -> Block n O O -> Block n O O
-    rotate (BCat h t)     = append h (rotate t)
-    rotate b@(BMiddle {}) = b
-    append b@(BMiddle {}) t = b `BCat` t
-    append (BCat b1 b2) b3 = b1 `append` (b2 `append` b3)
-frontBiasBlock b@(BHead {})    = b -- back-biased by nature; cannot fix
-frontBiasBlock b@(BTail {})    = b -- statically front-biased
-frontBiasBlock   (BClosed h t) = shiftRight h t
-    where shiftRight :: Block n C O -> Block n O C -> Block n C C
-          shiftRight (BHead b1 b2)  b3 = shiftRight b1 (BTail b2 b3)
-          shiftRight b1@(BFirst {}) b2 = BClosed b1 b2
+frontBiasBlock blk = case blk of
+   BlockCO f b   -> BlockCO f (fb b BNil)
+   BlockOC   b n -> BlockOC   (fb b BNil) n
+   BlockCC f b n -> BlockCC f (fb b BNil) n
+   b@BNil{}      -> fb b BNil
+   b@BMiddle{}   -> fb b BNil
+   b@BCat{}      -> fb b BNil
+   b@BHead{}     -> fb b BNil
+   b@BTail{}     -> fb b BNil
+ where
+   fb :: Block n O O -> Block n O O -> Block n O O
+   fb BNil        rest = rest
+   fb (BMiddle n) rest = BTail n rest
+   fb (BCat l r)  rest = fb l (fb r rest)
+   fb (BTail n b) rest = BTail n (fb b rest)
+   fb (BHead b n) rest = fb b (BTail n rest)
 
 -- | A block is "back biased" if the right child of every
 -- concatenation operation is a node, not a general block; a
@@ -107,21 +132,19 @@ frontBiasBlock   (BClosed h t) = shiftRight h t
 -- can be back-biased; an open/closed block is inherently front-biased.
 
 backBiasBlock :: Block n e x -> Block n e x
-backBiasBlock b@(BFirst  {}) = b
-backBiasBlock b@(BMiddle {}) = b
-backBiasBlock b@(BLast   {}) = b
-backBiasBlock b@(BCat {}) = rotate b
-  where -- rotate and append ensure every right child of Cat is Middle
-        -- provided 1st argument to append already has this property
-    rotate :: Block n O O -> Block n O O
-    append :: Block n O O -> Block n O O -> Block n O O
-    rotate (BCat h t)     = append (rotate h) t
-    rotate b@(BMiddle {}) = b
-    append h b@(BMiddle {}) = h `BCat` b
-    append b1 (BCat b2 b3) = (b1 `append` b2) `append` b3
-backBiasBlock b@(BHead {}) = b -- statically back-biased
-backBiasBlock b@(BTail {}) = b -- front-biased by nature; cannot fix
-backBiasBlock (BClosed h t) = shiftLeft h t
-    where shiftLeft :: Block n C O -> Block n O C -> Block n C C
-          shiftLeft b1 (BTail b2 b3) = shiftLeft (BHead b1 b2) b3
-          shiftLeft b1 b2@(BLast {}) = BClosed b1 b2
+backBiasBlock blk = case blk of
+   BlockCO f b   -> BlockCO f (bb BNil b)
+   BlockOC   b n -> BlockOC   (bb BNil b) n
+   BlockCC f b n -> BlockCC f (bb BNil b) n
+   b@BNil{}      -> bb BNil b
+   b@BMiddle{}   -> bb BNil b
+   b@BCat{}      -> bb BNil b
+   b@BHead{}     -> bb BNil b
+   b@BTail{}     -> bb BNil b
+ where
+   bb :: Block n O O -> Block n O O -> Block n O O
+   bb rest BNil = rest
+   bb rest (BMiddle n) = BHead rest n
+   bb rest (BCat l r) = bb (bb rest l) r
+   bb rest (BTail n b) = bb (BHead rest n) b
+   bb rest (BHead b n) = BHead (bb rest b) n
