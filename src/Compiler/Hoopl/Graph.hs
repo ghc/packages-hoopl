@@ -51,16 +51,21 @@ data Block n e x where
 -- principles are easy to discern:
 --     
 --
---   - Fully open blocks are treated as lists of O/O nodes based on the
+--  1. Fully open blocks are treated as lists of O/O nodes based on the
 --     empty/singleton/append algebra.  This representation gives
 --     append in constant time and allows either front or back bias.
 --     
---   - Cons and snoc are such common cases that they are included to
+--  2. Cons and snoc are such common cases that they are included to
 --     reduce the number of indirections in the representations.
 --
---   - Anywhere a block is closed, the closing node is accessible in
+--  3. Anywhere a block is closed, the closing node is accessible in
 --     constant time.
-
+--
+-- The original representation rejected principle 3 but upheld principle 2.
+-- The list model was more restrictive, supporting only append and singleton
+-- but not empty.  The original had an additional principle (4?) which said
+-- that every singleton node should also be a block.  We seem to have found
+-- no need to preserve this principle.
 
 ------------------------------------------------------------------
 
