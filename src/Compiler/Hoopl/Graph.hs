@@ -47,6 +47,23 @@ data Block n e x where
   BHead   :: Block n O O -> n O O       -> Block n O O
   BTail   :: n O O       -> Block n O O -> Block n O O
 
+-- NR likes this Block representation because the underlying
+-- principles are easy to discern:
+--     
+--
+--   - Fully open blocks are treated as lists of O/O nodes based on the
+--     empty/singleton/append algebra.  This representation gives
+--     append in constant time and allows either front or back bias.
+--     
+--   - Cons and snoc are such common cases that they are included to
+--     reduce the number of indirections in the representations.
+--
+--   - Anywhere a block is closed, the closing node is accessible in
+--     constant time.
+
+
+------------------------------------------------------------------
+
 -- | A (possibly empty) collection of closed/closed blocks
 type Body n = LabelMap (Block n C C)
 newtype Body' block n = Body (LabelMap (block n C C))
